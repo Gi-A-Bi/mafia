@@ -222,7 +222,7 @@ const Sound={
   tone(f,dur,type='sine',vol=.3,when=0){ if(!this.on)return; const c=this.ac(); if(!c)return; const o=c.createOscillator(),g=c.createGain(); o.type=type;o.frequency.value=f; g.gain.setValueAtTime(0,c.currentTime+when); g.gain.linearRampToValueAtTime(vol,c.currentTime+when+.01); g.gain.exponentialRampToValueAtTime(.0001,c.currentTime+when+dur); o.connect(g).connect(c.destination); o.start(c.currentTime+when); o.stop(c.currentTime+when+dur+.05) },
   noise(dur,vol=.25,when=0){ if(!this.on)return; const c=this.ac(); if(!c)return; const b=c.createBuffer(1,c.sampleRate*dur,c.sampleRate),dd=b.getChannelData(0); for(let i=0;i<dd.length;i++)dd[i]=(Math.random()*2-1)*(1-i/dd.length); const s=c.createBufferSource(); s.buffer=b; const g=c.createGain(); g.gain.value=vol; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=900; s.connect(f).connect(g).connect(c.destination); s.start(c.currentTime+when) },
   thump(when=0){ this.tone(55,.28,'sine',.5,when); this.tone(40,.22,'sine',.4,when+.16) },
-  heartbeat(start){ clearInterval(this.beatTimer); this.beatTimer=null; document.body.classList.toggle('pulse',!!start); if(start){ const go=()=>this.thump(0); go(); this.beatTimer=setInterval(go,1150) } },
+  heartbeat(start){ clearInterval(this.beatTimer); this.beatTimer=null; document.body.classList.toggle('pulse',!!start); if(start&&!(this.bgm&&this.bgmOn)){ const go=()=>this.thump(0); go(); this.beatTimer=setInterval(go,1150) } },
   tick(){ this.tone(1400,.05,'square',.12) },
   click(){ this.tone(600,.05,'triangle',.15) },
   drumroll(sec){ if(!this.on)return; const n=Math.floor(sec/.09); for(let i=0;i<n;i++){ this.noise(.08,.15+.25*(i/n),i*.09) } },
@@ -230,8 +230,59 @@ const Sound={
   chime(){ [523,659,784,1046].forEach((f,i)=>this.tone(f,.5,'triangle',.25,i*.09)) },
   sting(){ [880,660,440,220].forEach((f,i)=>this.tone(f,.35,'sawtooth',.18,i*.07)); this.noise(.4,.3) },
   fanfare(){ [392,523,659,784,1046].forEach((f,i)=>this.tone(f,.6,'triangle',.3,i*.13)); this.noise(.6,.15,.6) },
-  bad(){ [330,262,196,131].forEach((f,i)=>this.tone(f,.6,'sawtooth',.2,i*.18)) }
+  bad(){ [330,262,196,131].forEach((f,i)=>this.tone(f,.6,'sawtooth',.2,i*.18)) },
+
+  /* ---- 배경음: 파일 없이 합성. 항상 들리도록 중음역 반복 패턴 + 지속 패드 + 바람 ---- */
+  bgmOn:true, bgm:null, bgmMode:null, bgmTimer:null, bgmVol:.8,
+  bgmMaster(){ const c=this.ac(); if(!c)return null; if(!this._master){ this._master=c.createGain(); this._master.gain.value=this.bgmVol; this._master.connect(c.destination) } return this._master },
+  setVol(v){ this.bgmVol=v; if(this._master){ const n=this.ctx.currentTime; this._master.gain.cancelScheduledValues(n); this._master.gain.setTargetAtTime(v,n,.05) } },
+  note(bus,f,when,dur,type,vol,cutoff){ const c=this.ctx; const o=c.createOscillator(),g=c.createGain(),lp=c.createBiquadFilter(); o.type=type; o.frequency.value=f; lp.type='lowpass'; lp.frequency.setValueAtTime(cutoff,when); lp.frequency.exponentialRampToValueAtTime(Math.max(120,cutoff*.35),when+dur);
+    g.gain.setValueAtTime(0,when); g.gain.linearRampToValueAtTime(vol,when+.02); g.gain.exponentialRampToValueAtTime(.0001,when+dur); o.connect(lp).connect(g).connect(bus); o.start(when); o.stop(when+dur+.05) },
+  startBgm(mode){
+    if(!this.bgmOn)return; const c=this.ac(); if(!c||c.state!=='running')return;
+    if(this.bgm&&this.bgmMode===mode)return;
+    this.stopBgm(true); this.bgmMode=mode;
+    const M=this.bgmMaster(), t=c.currentTime, nodes=[];
+    const bus=c.createGain(); bus.gain.value=0; bus.connect(M); bus.gain.linearRampToValueAtTime(1,t+1.2);
+    const night=mode!=='day';
+    // 1) 지속 패드: 작은 스피커에서도 들리는 중음역 단조 화음 (약간 어긋난 두 겹)
+    const chord=night?[220,261.6,329.6,349.2]:[293.7,349.2,440,466.2];
+    chord.forEach((f,i)=>[0,1.5].forEach(det=>{ const o=c.createOscillator(),g=c.createGain(),lp=c.createBiquadFilter(); o.type='sawtooth'; o.frequency.value=f; o.detune.value=det*(i%2?1:-1); lp.type='lowpass'; lp.frequency.value=night?700:1100; g.gain.value=night?.028:.022;
+      const lfo=c.createOscillator(),lg=c.createGain(); lfo.frequency.value=.09+i*.04; lg.gain.value=night?350:400; lfo.connect(lg).connect(lp.frequency); lfo.start(t);
+      o.connect(lp).connect(g).connect(bus); o.start(t); nodes.push(o,lfo) }));
+    // 2) 저음 드론
+    [[55,.14],[55.6,.1]].forEach(([f,v])=>{ const o=c.createOscillator(),g=c.createGain(),lp=c.createBiquadFilter(); o.type='sawtooth'; o.frequency.value=night?f:f*1.335; lp.type='lowpass'; lp.frequency.value=220; g.gain.value=v; o.connect(lp).connect(g).connect(bus); o.start(t); nodes.push(o) });
+    // 3) 바람
+    const len=c.sampleRate*4, buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0); for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+    const ns=c.createBufferSource(); ns.buffer=buf; ns.loop=true; const bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=night?500:800; bp.Q.value=1.2;
+    const ng=c.createGain(); ng.gain.value=night?.06:.03; const wl=c.createOscillator(),wg=c.createGain(); wl.frequency.value=.06; wg.gain.value=280; wl.connect(wg).connect(bp.frequency); wl.start(t);
+    ns.connect(bp).connect(ng).connect(bus); ns.start(t); nodes.push(ns,wl);
+    // 4) 반복 패턴 (8분음표 단위 스케줄러) — 밤: 느리고 무거운 두 음 반복, 낮: 빠른 추격 리듬
+    const bpm=night?80:128, step=60/bpm/2;
+    const bass=night?[110,0,110,0,116.5,0,110,0,110,0,110,0,103.8,0,116.5,0]:[146.8,146.8,0,146.8,155.6,0,146.8,0,146.8,146.8,0,146.8,138.6,0,155.6,0];
+    const lead=night?[329.6,0,0,0,311.1,0,0,0,293.7,0,0,0,246.9,0,0,0]:[440,0,0,0,466.2,0,0,0,440,0,0,0,415.3,0,0,0];
+    let i=0, next=t+.1; const self=this;
+    this.bgmTimer=setInterval(()=>{ if(!self.bgm)return; while(next<c.currentTime+.6){ const b=bass[i%16];
+        if(b)self.note(bus,b,next,night?step*1.6:step*.9,'sawtooth',night?.22:.2,night?900:1400);
+        if(!night&&i%2===0)self.note(bus,3000,next,.04,'square',.05,6000);
+        if(night&&i%8===0)self.thump(next-c.currentTime);
+        const bar=Math.floor(i/16); const L=lead[i%16]; if(L&&bar%4===3)self.note(bus,L,next,step*3.5,'triangle',night?.09:.08,2400);
+        if(night&&i%16===0&&Math.random()<.5){ const o=c.createOscillator(),g=c.createGain(); o.type='sine'; const f0=600+Math.random()*600; o.frequency.setValueAtTime(f0,next); o.frequency.exponentialRampToValueAtTime(f0*.5,next+3.5); g.gain.setValueAtTime(0,next); g.gain.linearRampToValueAtTime(.045,next+1.2); g.gain.linearRampToValueAtTime(0,next+3.6); o.connect(g).connect(bus); o.start(next); o.stop(next+3.7) }
+        next+=step; i++ } },120);
+    this.bgm={bus,nodes};
+  },
+  stopBgm(quick){
+    clearInterval(this.bgmTimer); this.bgmTimer=null; const b=this.bgm; this.bgm=null; this.bgmMode=null; if(!b)return;
+    const c=this.ctx, n=c.currentTime, fade=quick?.8:1.5; b.bus.gain.cancelScheduledValues(n); b.bus.gain.setValueAtTime(b.bus.gain.value,n); b.bus.gain.linearRampToValueAtTime(0,n+fade);
+    setTimeout(()=>{ b.nodes.forEach(x=>{try{x.stop()}catch(e){}}); try{b.bus.disconnect()}catch(e){} },fade*1000+50);
+  },
+  duck(sec){ const M=this._master; if(!M||!this.bgm)return; const n=this.ctx.currentTime; M.gain.cancelScheduledValues(n); M.gain.setValueAtTime(M.gain.value,n); M.gain.linearRampToValueAtTime(this.bgmVol*.3,n+.3); M.gain.linearRampToValueAtTime(this.bgmVol,n+sec+1) },
+  syncBgm(){ const mode=document.body.classList.contains('day')?'day':'night'; if(this.bgmOn)this.startBgm(mode); else this.stopBgm(false) }
 };
+document.addEventListener('pointerdown',()=>{ Sound.ac(); Sound.syncBgm() },{capture:true});
+document.addEventListener('keydown',()=>{ Sound.ac(); Sound.syncBgm() },{capture:true});
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&Sound.ctx){ Sound.ctx.resume().then(()=>Sound.syncBgm()) } });
+setInterval(()=>{ if(Sound.ctx&&Sound.bgmOn){ if(Sound.ctx.state!=='running')Sound.ctx.resume().catch(()=>{}); if(Sound.ctx.state==='running'&&!Sound.bgm)Sound.syncBgm() } },2000);
 
 /* ---------- state ---------- */
 let S = { screen:'home' };
@@ -240,7 +291,7 @@ let R = null;           // reveal state (디벗)
 let timerHandle=null;
 let pendingCfg = {n:25,m:3,p:1,d:1,r:5,disc:120,vote:20,showRole:true,majority:false,missions:DEFAULT_MISSIONS.join('\n')};
 
-function setBodyMode(mode){ document.body.classList.toggle('day',mode==='day'); document.body.classList.toggle('night',mode!=='day'); if(mode!=='night')Sound.heartbeat(false) }
+function setBodyMode(mode){ document.body.classList.toggle('day',mode==='day'); document.body.classList.toggle('night',mode!=='day'); if(mode!=='night')Sound.heartbeat(false); if(Sound.ctx)Sound.syncBgm() }
 function go(screen,extra){ S={screen,...(extra||{})}; render() }
 
 /* ---------- render ---------- */
@@ -254,7 +305,7 @@ function bind(){
   document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{Sound.click();go(b.dataset.go)});
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>ACT[b.dataset.act](b));
 }
-const topbarHTML=(left,mid)=>`<div class="topbar"><div class="round">${left||''}</div><div class="counts">${mid||''}</div><button class="iconbtn" data-act="toggleSound">${Sound.on?'🔊 소리 켜짐':'🔇 소리 꺼짐'}</button></div>`;
+const topbarHTML=(left,mid)=>`<div class="topbar"><div class="round">${left||''}</div><div class="counts">${mid||''}</div><span style="display:flex;gap:8px;align-items:center"><input type="range" id="vol" min="0" max="1" step="0.05" value="${Sound.bgmVol}" title="배경음 크기" style="width:90px;accent-color:var(--accent)" oninput="Sound.setVol(+this.value)"><button class="iconbtn" data-act="toggleBgm">${Sound.bgmOn?'🎵 배경음 켜짐':'🎵 배경음 꺼짐'}</button><button class="iconbtn" data-act="toggleSound">${Sound.on?'🔊 효과음':'🔇 효과음'}</button></span></div>`;
 
 const SCREENS={};
 
@@ -269,7 +320,7 @@ SCREENS.home=()=>{ setBodyMode('night'); return `
       <button class="choice" data-go="enterCode"><div class="ct">📱 역할 확인</div><div class="cd">디벗에서 시작<br>코드를 입력하고 한 명씩 돌려보기</div></button>
     </div>
   </div>
-  <div class="actions"><div class="hint">이 파일 하나로 두 기기 모두에서 실행합니다. 인터넷이 없어도 작동해요.</div></div>`};
+  <div class="actions"><div class="hint">이 파일 하나로 두 기기 모두에서 실행합니다. 인터넷이 없어도 작동해요.</div><button class="btn primary" data-act="kick">🎵 화면을 눌러 배경음 켜기</button></div>`};
 
 /* SETUP */
 SCREENS.setup=()=>{ setBodyMode('night'); const c=pendingCfg; return `
@@ -455,7 +506,7 @@ function checkWin(afterDay){
   return false;
 }
 function runCountdown(from,done){
-  const el=$('#roll'); let n=from; Sound.drumroll(from);
+  const el=$('#roll'); let n=from; Sound.drumroll(from); Sound.duck(from+1.5);
   timerHandle=setInterval(()=>{ n--; if(n>0){ el.textContent=n; Sound.tick() } else { clearInterval(timerHandle); timerHandle=null; done() } },1000);
 }
 function startClock(){
@@ -470,6 +521,8 @@ function startClock(){
 
 const ACT={
   toggleSound(){ Sound.on=!Sound.on; if(!Sound.on)Sound.heartbeat(false); render() },
+  toggleBgm(){ Sound.bgmOn=!Sound.bgmOn; Sound.ac(); Sound.syncBgm(); render() },
+  kick(){ Sound.bgmOn=true; Sound.ac(); Sound.syncBgm(); render() },
   makeCode(){
     const c={n:+$('#f_n').value,m:+$('#f_m').value,p:+$('#f_p').value,d:+$('#f_d').value,r:+$('#f_r').value};
     const extra={disc:+$('#f_disc').value||120,vote:+$('#f_vote').value||20,showRole:$('#f_showRole').checked,majority:$('#f_majority').checked,missions:$('#f_missions').value};
