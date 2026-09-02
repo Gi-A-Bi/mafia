@@ -93,8 +93,8 @@
   .error{color:var(--blood);font-weight:700}
   body.day .error{color:#B3241F}
 
-  .code{font-family:'Black Han Sans',sans-serif;font-size:clamp(56px,12vw,180px);letter-spacing:.18em;padding:.1em .3em 0 .45em;border:3px dashed var(--tile-border);border-radius:24px;line-height:1.1}
-  .codeinput{font-family:'Black Han Sans',sans-serif;font-size:clamp(40px,8vw,120px);letter-spacing:.2em;text-align:center;text-transform:uppercase;width:min(7.2em,90vw);padding:.15em .2em 0 .4em;border-radius:20px;border:3px solid var(--tile-border);background:var(--tile);color:var(--fg)}
+  .code{font-family:'Black Han Sans',sans-serif;font-size:clamp(44px,9.5vw,140px);letter-spacing:.14em;padding:.1em .3em 0 .35em;border:3px dashed var(--tile-border);border-radius:24px;line-height:1.1}
+  .codeinput{font-family:'Black Han Sans',sans-serif;font-size:clamp(32px,6.6vw,100px);letter-spacing:.16em;text-align:center;text-transform:uppercase;width:min(8.6em,92vw);padding:.15em .2em 0 .3em;border-radius:20px;border:3px solid var(--tile-border);background:var(--tile);color:var(--fg)}
 
   /* role card */
   .card{width:min(520px,92vw);border-radius:28px;padding:40px 30px;border:3px solid var(--tile-border);background:var(--tile);display:flex;flex-direction:column;align-items:center;gap:14px;min-height:340px;justify-content:center;transition:background .2s}
@@ -187,25 +187,8 @@ function assignRoles(cfg,seed){
   for(let i=arr.length-1;i>0;i--){const j=Math.floor(rng()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}
   return arr;
 }
-const SEED_RANGE=5000;
-function encodeCode(cfg,seed){
-  const v=((((cfg.n*10+cfg.m)*10+cfg.p)*10+cfg.d)*10+cfg.r)*SEED_RANGE+seed;
-  return v.toString(36).toUpperCase().padStart(6,'0');
-}
-function decodeCode(code){
-  code=(code||'').trim().toUpperCase().replace(/[^0-9A-Z]/g,'');
-  if(code.length!==6)return null;
-  let v=parseInt(code,36); if(!Number.isFinite(v))return null;
-  const seed=v%SEED_RANGE; v=Math.floor(v/SEED_RANGE);
-  const r=v%10; v=Math.floor(v/10);
-  const d=v%10; v=Math.floor(v/10);
-  const p=v%10; v=Math.floor(v/10);
-  const m=v%10; v=Math.floor(v/10);
-  const n=v;
-  if(n<4||n>40||m<1||r<1||m+p+d>=n)return null;
-  return {cfg:{n,m,p,d,r},seed};
-}
 function validateCfg(c){
+  if(!c||![c.n,c.m,c.p,c.d,c.r].every(Number.isInteger))return '설정 값이 올바르지 않아요.';
   if(c.n<4||c.n>40)return '학급 인원은 4~40명이어야 해요.';
   if(c.m<1||c.m>9)return '마피아는 1~9명이어야 해요.';
   if(c.p<0||c.p>9||c.d<0||c.d>9)return '경찰과 의사는 0~9명이어야 해요.';
@@ -213,6 +196,58 @@ function validateCfg(c){
   if(c.m*2>=c.n)return '마피아가 너무 많아요. 전체의 절반 미만으로 하세요.';
   if(c.r<1||c.r>9)return '라운드는 1~9 사이로 정하세요.';
   return null;
+}
+
+/* ---- 코드 인코딩: 사람이 옮겨 적어도 안전하도록 설계 ----
+   - 0/O, 1/I/L, U 처럼 헷갈리는 문자를 아예 뺀 32자 알파벳(Crockford 방식) 사용
+   - 데이터 6자 + 체크섬 1자 = 총 7자. 오타가 나면 형식이 아니라 "체크섬 불일치"로 명확히 걸러짐
+   - 디코딩 뒤에도 설정 화면과 100% 동일한 validateCfg()로 다시 검증해 규칙 이탈을 원천 차단 */
+const CODE_ALPHA='0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // I,L,O,U 없음
+const CODE_DATA_LEN=6;
+const SEED_RANGE=2000; // cfg 최대값(409999) * 2000 < 32^6, 6자리 안에 항상 들어감을 보장
+function b32Encode(num,len){
+  let s='',v=Math.max(0,Math.floor(num));
+  for(let i=0;i<len;i++){ s=CODE_ALPHA[v%32]+s; v=Math.floor(v/32); }
+  return s;
+}
+function b32Decode(str){
+  let v=0;
+  for(const ch of str){ const idx=CODE_ALPHA.indexOf(ch); if(idx<0)return null; v=v*32+idx; }
+  return v;
+}
+function codeChecksum(dataStr){
+  let sum=0;
+  for(let i=0;i<dataStr.length;i++){ const idx=CODE_ALPHA.indexOf(dataStr[i]); if(idx<0)return null; sum+=(idx+1)*(i+1); }
+  return CODE_ALPHA[sum%32];
+}
+function normalizeCode(raw){
+  return (raw||'').trim().toUpperCase().replace(/[^0-9A-Z]/g,'')
+    .replace(/O/g,'0').replace(/[IL]/g,'1').replace(/U/g,'V'); // 혹시 남아있을 헷갈림 문자 방어적으로 보정
+}
+function encodeCode(cfg,seed){
+  const cfgPart=((((cfg.n*10+cfg.m)*10+cfg.p)*10+cfg.d)*10+cfg.r);
+  const v=cfgPart*SEED_RANGE+(seed%SEED_RANGE);
+  const data=b32Encode(v,CODE_DATA_LEN);
+  return data+codeChecksum(data);
+}
+function decodeCode(raw){
+  const code=normalizeCode(raw);
+  if(code.length!==CODE_DATA_LEN+1)return {error:'length'};
+  const data=code.slice(0,CODE_DATA_LEN), given=code.slice(CODE_DATA_LEN);
+  const expect=codeChecksum(data);
+  if(expect===null)return {error:'chars'};
+  if(given!==expect)return {error:'checksum'};
+  let v=b32Decode(data); if(v===null)return {error:'chars'};
+  const seed=v%SEED_RANGE; v=Math.floor(v/SEED_RANGE);
+  const r=v%10; v=Math.floor(v/10);
+  const d=v%10; v=Math.floor(v/10);
+  const p=v%10; v=Math.floor(v/10);
+  const m=v%10; v=Math.floor(v/10);
+  const n=v;
+  const cfg={n,m,p,d,r};
+  const err=validateCfg(cfg);
+  if(err)return {error:'range'};
+  return {cfg,seed};
 }
 
 /* ---------- sound (Web Audio, no files) ---------- */
@@ -304,6 +339,14 @@ function render(){
 function bind(){
   document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{Sound.click();go(b.dataset.go)});
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>ACT[b.dataset.act](b));
+  document.querySelectorAll('.hold-peek').forEach(btn=>{
+    const target=document.getElementById('missionText');
+    if(!target)return;
+    const show=e=>{ if(e)e.preventDefault(); target.style.display='block'; };
+    const hide=()=>{ target.style.display='none'; };
+    btn.addEventListener('pointerdown',show);
+    ['pointerup','pointercancel','pointerleave','blur'].forEach(ev=>btn.addEventListener(ev,hide));
+  });
 }
 const topbarHTML=(left,mid)=>`<div class="topbar"><div class="round">${left||''}</div><div class="counts">${mid||''}</div><span style="display:flex;gap:8px;align-items:center"><input type="range" id="vol" min="0" max="1" step="0.05" value="${Sound.bgmVol}" title="배경음 크기" style="width:90px;accent-color:var(--accent)" oninput="Sound.setVol(+this.value)"><button class="iconbtn" data-act="toggleBgm">${Sound.bgmOn?'🎵 배경음 켜짐':'🎵 배경음 꺼짐'}</button><button class="iconbtn" data-act="toggleSound">${Sound.on?'🔊 효과음':'🔇 효과음'}</button></span></div>`;
 
@@ -353,7 +396,7 @@ SCREENS.code=()=>{ setBodyMode('night'); const c=G.cfg; return `
     <div class="sub">${c.n}명 · 마피아 ${c.m} · 경찰 ${c.p} · 의사 ${c.d} · 시민 ${c.n-c.m-c.p-c.d} · ${c.r}라운드</div>
     <div class="hint">코드 하나가 역할 배정을 통째로 담고 있어서 두 기기의 배정이 항상 같습니다. 학생들이 모두 역할을 확인한 뒤 "게임 시작"을 누르세요.</div>
   </div>
-  <div class="actions"><button class="btn ghost" data-go="setup">설정 바꾸기</button><button class="btn ghost" data-act="teacherPeek">교사용 역할표 보기</button><button class="btn primary big" data-act="startGame">게임 시작</button></div>`};
+  <div class="actions"><button class="btn ghost" data-act="confirmChangeSetup">설정 바꾸기</button><button class="btn ghost" data-act="teacherPeek">교사용 역할표 보기</button><button class="btn primary big" data-act="startGame">게임 시작</button></div>`};
 
 SCREENS.peek=()=>{ setBodyMode('night'); return `
   ${topbarHTML('교사용 역할표','')}
@@ -368,9 +411,9 @@ SCREENS.enterCode=()=>{ setBodyMode('night'); return `
   ${topbarHTML('역할 확인','')}
   <div class="stage">
     <div class="display small">코드를 입력하세요</div>
-    <input class="codeinput" id="codeIn" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="ABC123">
+    <input class="codeinput" id="codeIn" maxlength="7" autocomplete="off" autocapitalize="characters" placeholder="AB12KX7">
     <div id="codeErr" class="error"></div>
-    <div class="hint">선생님 화면에 표시된 6자리 코드입니다.</div>
+    <div class="hint">선생님 화면에 표시된 7자리 코드입니다. 마지막 글자까지 정확히 입력하면 오타를 자동으로 확인해줘요.</div>
   </div>
   <div class="actions"><button class="btn ghost" data-go="home">뒤로</button><button class="btn primary big" data-act="useCode">확인</button></div>`};
 
@@ -423,12 +466,18 @@ SCREENS.game=()=>{
   if(ph==='n_sleep'||ph==='n_mafia'||ph==='n_doctor'||ph==='n_police')Sound.heartbeat(true); else Sound.heartbeat(false);
   let body='',actions='';
   switch(ph){
+    case 'd_intro':
+      body=`<div class="display small">게임 시작 · 첫째 날 낮</div><div class="timer" id="clock">${fmt(G.timeLeft)}</div><div class="sub">아직 아무도 사라지지 않았어요. 서로 얼굴을 보며 자기소개를 하고, 분위기를 살펴보세요.</div>`;
+      actions=`<button class="btn ghost" data-act="timerToggle" id="tbtn">${G.timerOn?'일시정지':'시작'}</button><button class="btn ghost" data-act="timerPlus">+30초</button><button class="btn primary big" data-act="toNight">첫 번째 밤 시작</button>`; break;
     case 'n_sleep':
       body=`<div class="display">${G.round===1?'첫 번째 밤':G.round+'번째 밤'}이 찾아왔다</div><div class="sub">모두 눈을 감으세요.<br>책상에 엎드리고, 소리를 내지 마세요.</div>`;
       actions=`<button class="btn primary big" data-act="next">마피아, 눈을 뜨세요</button>`; break;
     case 'n_mafia':
       body=`<div class="display small red">마피아, 눈을 뜨세요</div>
-        <div class="mission"><div class="mlabel">이번 라운드 비밀 미션 · 낮 토론 중에 몰래 수행하세요</div><div class="mtext">${escapeHtml(G.mission)}</div></div>
+        <div class="mission"><div class="mlabel">비밀 미션 (다른 사람은 보면 안 돼요)</div>
+          <button class="btn ghost hold-peek" id="missionBtn" type="button">🔒 마피아만 보세요 — 누르고 있으면 보임</button>
+          <div class="mtext" id="missionText" style="display:none;margin-top:10px">${escapeHtml(G.mission)}</div>
+        </div>
         <div class="hint" style="opacity:.85;font-size:clamp(14px,1.6vw,20px)">서로 눈빛으로 상의한 뒤, 없앨 사람을 손가락으로 가리키세요.</div>
         ${tilesHTML(G.night.mafia,{compact:true})}`;
       actions=`<button class="btn primary big" data-act="next" ${G.night.mafia==null?'disabled':''}>마피아, 눈을 감으세요</button>`; break;
@@ -451,8 +500,11 @@ SCREENS.game=()=>{
         :`<div class="display reveal" style="color:#5EE29B">아무도 죽지 않았습니다!</div><div class="sub">${v.saved?'의사가 누군가를 살려냈습니다.':'평화로운 밤이었습니다.'}</div>`;
       actions=`<button class="btn primary big" data-act="afterDawn">낮 시작</button>`; break; }
     case 'd_mission':
-      body=`<div class="display small">투표 전, 마피아 미션 판정</div><div class="sub">이번 라운드 미션: <strong>${escapeHtml(G.mission||'')}</strong></div><div class="hint">선생님만 판단합니다. 마피아 중 한 명이라도 토론 중에 미션을 못 했다면 "실패"를 누르세요. 실패 사실은 반 전체에 공개되고, 성공했다면 조용히 투표로 넘어갑니다.</div>`;
-      actions=`<button class="btn success big" data-act="missionOk">성공 (조용히 넘어가기)</button><button class="btn danger big" data-act="missionFail">실패 (전체 공개)</button>`; break;
+      body=`<div class="display small">투표 전, 마피아 미션 판정</div>
+        <div class="hint">방금 토론 중에 마피아 전원이 비밀 미션을 수행했는지 선생님이 판단하세요. 화면에는 내용을 띄우지 않습니다 — 실패로 판정해야 그때 전체에 공개됩니다.</div>
+        <button class="btn ghost hold-peek" id="missionBtn" type="button">🔒 미션 내용 다시 보기 (선생님만)</button>
+        <div class="sub" id="missionText" style="display:none">이번 라운드 미션: <strong>${escapeHtml(G.mission||'')}</strong></div>`;
+      actions=`<button class="btn success big" data-act="missionOk">성공 (조용히 투표로)</button><button class="btn danger big" data-act="missionFail">실패 (전체 공개)</button>`; break;
     case 'd_missionfail':
       body=`<div class="display red reveal shake">마피아가 미션에<br>실패했습니다!</div><div class="sub">마피아 중 누군가 <strong>"${escapeHtml(G.mission||'')}"</strong>을(를) 하지 못했습니다.<br>방금 토론에서 그 행동을 안 한 사람이 누구였는지 떠올려 보세요.</div>`;
       actions=`<button class="btn primary big" data-act="toVote">투표 시작</button>`; break;
@@ -491,7 +543,7 @@ function fmt(s){ s=Math.max(0,s|0); return `${Math.floor(s/60)}:${String(s%60).p
 function newGame(cfg,seed,extra){
   const roles=assignRoles(cfg,seed);
   const missions=(extra.missions||'').split('\n').map(x=>x.trim()).filter(Boolean);
-  G={cfg:{...cfg,...extra},seed,code:encodeCode(cfg,seed),roles,alive:roles.map(()=>true),round:1,phase:'n_sleep',night:{mafia:null,doctor:null,police:null},
+  G={cfg:{...cfg,...extra},seed,code:encodeCode(cfg,seed),roles,alive:roles.map(()=>true),round:1,phase:'d_intro',night:{mafia:null,doctor:null,police:null},
      missions:missions.length?missions:DEFAULT_MISSIONS,missionPool:[],mission:null,started:false,lastNight:null,voteSel:null,lastExec:null,timeLeft:0,timerOn:false,winner:null,winReason:''};
 }
 function drawMission(){ if(!G.missionPool.length)G.missionPool=[...G.missions].sort(()=>Math.random()-.5); return G.missionPool.pop() }
@@ -531,11 +583,18 @@ const ACT={
     newGame(c,Math.floor(Math.random()*SEED_RANGE),extra); Sound.chime(); go('code');
   },
   teacherPeek(){ go('peek') },
+  confirmChangeSetup(){
+    const ok=confirm('설정을 바꾸면 새 코드가 만들어지고, 방금 학생들이 확인한 역할은 모두 무효가 됩니다.\n아직 아무도 코드를 입력하지 않았을 때만 계속하세요.\n\n계속할까요?');
+    if(ok)go('setup');
+  },
   peekBack(){ go(G.started?'game':'code') },
-  startGame(){ Sound.gong(); G.started=true; G.mission=drawMission(); go('game') },
+  startGame(){ Sound.gong(); G.started=true; G.phase='d_intro'; G.timeLeft=G.cfg.disc; G.timerOn=true; go('game'); startClock() },
   useCode(){
     const dec=decodeCode($('#codeIn').value);
-    if(!dec){ $('#codeErr').textContent='코드가 올바르지 않아요. 6자리를 다시 확인하세요.'; Sound.sting(); return }
+    if(dec.error){
+      const msgs={length:'코드는 7자리예요. 글자 수를 확인하세요.',chars:'코드에 쓸 수 없는 문자가 있어요. 화면에 보이는 대로 다시 입력하세요.',checksum:'코드에 오타가 있는 것 같아요. 한 글자씩 다시 확인하세요.',range:'코드가 손상된 것 같아요. 선생님께 코드를 다시 요청하세요.'};
+      $('#codeErr').textContent=msgs[dec.error]||'코드가 올바르지 않아요.'; Sound.sting(); return;
+    }
     R={cfg:dec.cfg,roles:assignRoles(dec.cfg,dec.seed),idx:0,shown:false,seen:false}; Sound.chime(); go('reveal');
   },
   holdReveal(){},
@@ -568,6 +627,7 @@ const ACT={
     runCountdown(3,()=>{ if(G.lastNight.killed!=null){ G.alive[G.lastNight.killed]=false; Sound.sting() } else Sound.chime(); G.phase='dawn_result'; go('game') });
   },
   afterDawn(){ if(checkWin(false))return; G.phase='d_discuss'; G.timeLeft=G.cfg.disc; G.timerOn=true; go('game'); startClock() },
+  toNight(){ Sound.click(); G.timerOn=false; startRound() },
   toMission(){ Sound.click(); G.timerOn=false; G.phase='d_mission'; go('game') },
   missionOk(){ Sound.click(); ACT.toVote() },
   missionFail(){ Sound.sting(); G.phase='d_missionfail'; go('game') },
