@@ -474,10 +474,7 @@ SCREENS.game=()=>{
       actions=`<button class="btn primary big" data-act="next">마피아, 눈을 뜨세요</button>`; break;
     case 'n_mafia':
       body=`<div class="display small red">마피아, 눈을 뜨세요</div>
-        <div class="mission"><div class="mlabel">비밀 미션 (다른 사람은 보면 안 돼요)</div>
-          <button class="btn ghost hold-peek" id="missionBtn" type="button">🔒 마피아만 보세요 — 누르고 있으면 보임</button>
-          <div class="mtext" id="missionText" style="display:none;margin-top:10px">${escapeHtml(G.mission)}</div>
-        </div>
+        <div class="mission"><div class="mlabel">비밀 미션 · 낮 토론 중에 몰래 수행하세요</div><div class="mtext">${escapeHtml(G.mission)}</div></div>
         <div class="hint" style="opacity:.85;font-size:clamp(14px,1.6vw,20px)">서로 눈빛으로 상의한 뒤, 없앨 사람을 손가락으로 가리키세요.</div>
         ${tilesHTML(G.night.mafia,{compact:true})}`;
       actions=`<button class="btn primary big" data-act="next" ${G.night.mafia==null?'disabled':''}>마피아, 눈을 감으세요</button>`; break;
@@ -506,7 +503,7 @@ SCREENS.game=()=>{
         <div class="sub" id="missionText" style="display:none">이번 라운드 미션: <strong>${escapeHtml(G.mission||'')}</strong></div>`;
       actions=`<button class="btn success big" data-act="missionOk">성공 (조용히 투표로)</button><button class="btn danger big" data-act="missionFail">실패 (전체 공개)</button>`; break;
     case 'd_missionfail':
-      body=`<div class="display red reveal shake">마피아가 미션에<br>실패했습니다!</div><div class="sub">마피아 중 누군가 <strong>"${escapeHtml(G.mission||'')}"</strong>을(를) 하지 못했습니다.<br>방금 토론에서 그 행동을 안 한 사람이 누구였는지 떠올려 보세요.</div>`;
+      body=`<div class="display red reveal shake">마피아가 미션에<br>실패했습니다!</div><div class="sub">이제 사회자가 마피아에 대한 힌트 한 가지를 드리겠습니다.</div>`;
       actions=`<button class="btn primary big" data-act="toVote">투표 시작</button>`; break;
     case 'd_discuss':
       body=`<div class="display small">토론 시간</div><div class="timer" id="clock">${fmt(G.timeLeft)}</div><div class="sub">누가 수상한가요? 근거를 들어 이야기하세요.</div>`;
