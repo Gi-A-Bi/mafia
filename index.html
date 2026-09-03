@@ -348,7 +348,7 @@ function bind(){
     ['pointerup','pointercancel','pointerleave','blur'].forEach(ev=>btn.addEventListener(ev,hide));
   });
 }
-const topbarHTML=(left,mid)=>`<div class="topbar"><div class="round">${left||''}</div><div class="counts">${mid||''}</div><span style="display:flex;gap:8px;align-items:center"><input type="range" id="vol" min="0" max="1" step="0.05" value="${Sound.bgmVol}" title="배경음 크기" style="width:90px;accent-color:var(--accent)" oninput="Sound.setVol(+this.value)"><button class="iconbtn" data-act="toggleBgm">${Sound.bgmOn?'🎵 배경음 켜짐':'🎵 배경음 꺼짐'}</button><button class="iconbtn" data-act="toggleSound">${Sound.on?'🔊 효과음':'🔇 효과음'}</button></span></div>`;
+const topbarHTML=(left,mid)=>`<div class="topbar"><div class="round">${left||''}</div><div class="counts">${mid||''}</div><span style="display:flex;gap:8px;align-items:center">${S.screen!=='home'?'<button class="iconbtn" data-act="confirmHome" title="처음 화면으로">🏠 처음으로</button>':''}<input type="range" id="vol" min="0" max="1" step="0.05" value="${Sound.bgmVol}" title="배경음 크기" style="width:90px;accent-color:var(--accent)" oninput="Sound.setVol(+this.value)"><button class="iconbtn" data-act="toggleBgm">${Sound.bgmOn?'🎵 배경음 켜짐':'🎵 배경음 꺼짐'}</button><button class="iconbtn" data-act="toggleSound">${Sound.on?'🔊 효과음':'🔇 효과음'}</button></span></div>`;
 
 const SCREENS={};
 
@@ -580,6 +580,13 @@ const ACT={
     newGame(c,Math.floor(Math.random()*SEED_RANGE),extra); Sound.chime(); go('code');
   },
   teacherPeek(){ go('peek') },
+  confirmHome(){
+    const inGame = S.screen==='game' && G && G.started;
+    const msg = inGame
+      ? '진행 중인 게임을 종료하고 처음 화면으로 돌아갈까요?\n지금까지의 진행 상황(생존 여부, 라운드 등)은 모두 사라집니다.'
+      : '처음 화면으로 돌아갈까요?';
+    if(confirm(msg))go('home');
+  },
   confirmChangeSetup(){
     const ok=confirm('설정을 바꾸면 새 코드가 만들어지고, 방금 학생들이 확인한 역할은 모두 무효가 됩니다.\n아직 아무도 코드를 입력하지 않았을 때만 계속하세요.\n\n계속할까요?');
     if(ok)go('setup');
